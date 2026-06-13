@@ -186,15 +186,44 @@ public class AvailabilityNewsServiceTests : TestFixtures
     }
 
     [Fact]
-    public async Task AvailabilityNews_DeterministicTrackerRowsAreSavedWhenModelMisses()
+    public async Task AvailabilityNews_SendsArticleTextToOpenRouter()
+    {
+        await using var db = await NewDb();
+        var sourceUrl = "https://source.test/article";
+        var handler = new CapturingAvailabilityHandler(sourceUrl, """
+            <html><body>
+            <nav>Noise Player, Canada - navigation text that should not reach the model. OUT.</nav>
+            <article>
+            Article Player, Canada - knee injury will rule him out of the World Cup. OUT.
+            This article contains enough surrounding text to be accepted by the parser for testing purposes. It repeats the availability details with clear sourcing and additional tournament context so the stripped text is long enough for the service to send to the model.
+            </article>
+            </body></html>
+            """, OpenRouterResponse("""
+            {"claims":[{"player":"Article Player","team":"Canada","status":"ConfirmedOutInjury","reason":"knee injury","confidence":"high","evidenceLevel":"ReputableReported","supportingText":"Article Player, Canada - knee injury will rule him out of the World Cup. OUT.","sourceUrl":"","publishedOrObservedDate":""}]}
+            """));
+        var service = new AvailabilityNewsService(
+            new HttpClient(handler) { BaseAddress = new Uri("https://openrouter.test/") },
+            db,
+            AvailabilityOptions([sourceUrl]));
+
+        await service.RefreshAsync();
+
+        Assert.Contains("Article Player", handler.OpenRouterRequestBody);
+        Assert.DoesNotContain("Noise Player", handler.OpenRouterRequestBody);
+    }
+
+    [Fact]
+    public async Task AvailabilityNews_LlmOutClaimIsAuthoritativeAndAffectsPredictions()
     {
         await using var db = await NewDb();
         var sourceUrl = "https://talksport.test/tracker";
         var service = new AvailabilityNewsService(
             new HttpClient(new FakeHttpMessageHandler(new Dictionary<string, string>
             {
-                [sourceUrl] = LongArticleHtml(TalkSportSample()),
-                ["https://openrouter.test/chat/completions"] = EmptyOpenRouterResponse()
+                [sourceUrl] = LongArticleHtml("Moïse Bombito, Canada - Leg soreness following return from broken leg in October 2025 to rule him out of World Cup. OUT."),
+                ["https://openrouter.test/chat/completions"] = OpenRouterResponse("""
+                    {"claims":[{"player":"Moïse Bombito","team":"Canada","status":"ConfirmedOutInjury","reason":"leg soreness","confidence":"high","evidenceLevel":"ReputableReported","supportingText":"Moïse Bombito, Canada - Leg soreness following return from broken leg in October 2025 to rule him out of World Cup. OUT.","sourceUrl":"","publishedOrObservedDate":""}]}
+                    """)
             }))
             { BaseAddress = new Uri("https://openrouter.test/") },
             db,
@@ -203,12 +232,38 @@ public class AvailabilityNewsServiceTests : TestFixtures
         var report = await service.RefreshAsync();
         var claims = await db.AvailabilityClaims.ToListAsync();
 
-        Assert.Equal(19, report.ClaimsSaved);
-        Assert.Equal(2, report.ConfirmedOutClaims);
-        Assert.Equal(8, report.DoubtfulClaims);
-        Assert.Equal(9, report.AvailableClaims);
-        Assert.Contains(claims, c => c.Player == "Moïse Bombito" && c.AffectsPrediction);
-        Assert.Contains(claims, c => c.Player == "Edson Alvarez" && c.Status == AvailabilityClaimStatus.Available && !c.AffectsPrediction);
+        Assert.Equal(1, report.ClaimsSaved);
+        Assert.Equal(1, report.ConfirmedOutClaims);
+        var claim = Assert.Single(claims);
+        Assert.Equal("Moïse Bombito", claim.Player);
+        Assert.Equal(AvailabilityClaimStatus.ConfirmedOutInjury, claim.Status);
+        Assert.True(claim.AffectsPrediction);
+    }
+
+    [Fact]
+    public async Task AvailabilityNews_ValidModelOutputIsNotMergedWithTrackerRows()
+    {
+        await using var db = await NewDb();
+        var sourceUrl = "https://talksport.test/tracker";
+        var service = new AvailabilityNewsService(
+            new HttpClient(new FakeHttpMessageHandler(new Dictionary<string, string>
+            {
+                [sourceUrl] = LongArticleHtml("Moïse Bombito, Canada - Leg soreness following return from broken leg in October 2025 to rule him out of World Cup. OUT."),
+                ["https://openrouter.test/chat/completions"] = OpenRouterResponse("""
+                    {"claims":[{"player":"Model Only","team":"Canada","status":"Doubtful","reason":"fitness doubt","confidence":"medium","evidenceLevel":"ReportedUncertain","supportingText":"Model extracted this claim from article context.","sourceUrl":"","publishedOrObservedDate":""}]}
+                    """)
+            }))
+            { BaseAddress = new Uri("https://openrouter.test/") },
+            db,
+            AvailabilityOptions([sourceUrl]));
+
+        var report = await service.RefreshAsync();
+        var claim = Assert.Single(await db.AvailabilityClaims.ToListAsync());
+
+        Assert.Equal(1, report.ClaimsSaved);
+        Assert.Equal("Model Only", claim.Player);
+        Assert.Equal(AvailabilityClaimStatus.Doubtful, claim.Status);
+        Assert.DoesNotContain(await db.AvailabilityClaims.ToListAsync(), c => c.Player == "Moïse Bombito");
     }
 
     [Fact]
@@ -255,7 +310,9 @@ public class AvailabilityNewsServiceTests : TestFixtures
             new HttpClient(new FakeHttpMessageHandler(new Dictionary<string, string>
             {
                 [sourceUrl] = LongArticleHtml("Moïse Bombito, Canada - Leg soreness following return from broken leg in October 2025 to rule him out of World Cup. OUT."),
-                ["https://openrouter.test/chat/completions"] = EmptyOpenRouterResponse()
+                ["https://openrouter.test/chat/completions"] = OpenRouterResponse("""
+                    {"claims":[{"player":"Moïse Bombito","team":"Canada","status":"ConfirmedOutInjury","reason":"leg soreness","confidence":"high","evidenceLevel":"ReputableReported","supportingText":"Moïse Bombito, Canada - Leg soreness following return from broken leg in October 2025 to rule him out of World Cup. OUT.","sourceUrl":"","publishedOrObservedDate":""}]}
+                    """)
             }))
             { BaseAddress = new Uri("https://openrouter.test/") },
             db,
@@ -315,7 +372,9 @@ public class AvailabilityNewsServiceTests : TestFixtures
             new HttpClient(new FakeHttpMessageHandler(new Dictionary<string, string>
             {
                 [sourceUrl] = LongArticleHtml("Moïse Bombito, Canada - Leg soreness following return from broken leg in October 2025 to rule him out of World Cup. OUT."),
-                ["https://openrouter.test/chat/completions"] = EmptyOpenRouterResponse()
+                ["https://openrouter.test/chat/completions"] = OpenRouterResponse("""
+                    {"claims":[{"player":"Moïse Bombito","team":"Canada","status":"ConfirmedOutInjury","reason":"leg soreness","confidence":"high","evidenceLevel":"ReputableReported","supportingText":"Moïse Bombito, Canada - Leg soreness following return from broken leg in October 2025 to rule him out of World Cup. OUT.","sourceUrl":"","publishedOrObservedDate":""}]}
+                    """)
             }))
             { BaseAddress = new Uri("https://openrouter.test/") },
             db,
@@ -342,7 +401,9 @@ public class AvailabilityNewsServiceTests : TestFixtures
             new HttpClient(new FakeHttpMessageHandler(new Dictionary<string, string>
             {
                 [sourceUrl] = LongArticleHtml("Edson Alvarez, Mexico - West Ham player underwent ankle surgery in February but is now back fit. IN."),
-                ["https://openrouter.test/chat/completions"] = EmptyOpenRouterResponse()
+                ["https://openrouter.test/chat/completions"] = OpenRouterResponse("""
+                    {"claims":[{"player":"Edson Alvarez","team":"Mexico","status":"Available","reason":"back fit","confidence":"high","evidenceLevel":"ReputableReported","supportingText":"Edson Alvarez, Mexico - West Ham player underwent ankle surgery in February but is now back fit. IN.","sourceUrl":"","publishedOrObservedDate":""}]}
+                    """)
             }))
             { BaseAddress = new Uri("https://openrouter.test/") },
             db,
@@ -500,9 +561,10 @@ public class AvailabilityNewsServiceTests : TestFixtures
         """;
 
     private static string EmptyOpenRouterResponse() =>
-        """
-        {"choices":[{"message":{"content":"{\"claims\":[]}"}}]}
-        """;
+        OpenRouterResponse("""{"claims":[]}""");
+
+    private static string OpenRouterResponse(string content) =>
+        JsonSerializer.Serialize(new { choices = new[] { new { message = new { content } } } });
 
     private static string TalkSportSample() =>
         """
@@ -531,6 +593,34 @@ public class AvailabilityNewsServiceTests : TestFixtures
         Assert.Equal(teamId, claim.TeamId);
         Assert.Equal(status, claim.Status);
         Assert.Equal(affects, claim.AffectsPrediction);
+    }
+
+    private sealed class CapturingAvailabilityHandler(string sourceUrl, string articleHtml, string openRouterResponse) : HttpMessageHandler
+    {
+        public string OpenRouterRequestBody { get; private set; } = "";
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri?.ToString() ?? "";
+            if (uri.Equals(sourceUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(articleHtml)
+                };
+            }
+
+            if (uri.Equals("https://openrouter.test/chat/completions", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenRouterRequestBody = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(openRouterResponse)
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
     }
 
 }

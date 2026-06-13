@@ -62,24 +62,23 @@ namespace Oloraculo.Web.Services
                 }
 
                 fetched++;
-                var deterministicClaims = ParseTrackerClaims(fetch.Text, fetch.Url, fetch.Publisher);
                 try
                 {
                     var json = await ClassifyAsync(fetch, ct);
-                    var llmClaims = ParseClaimsFromJson(json, fetch.Url, fetch.Publisher)
+                    var claims = ParseClaimsFromJson(json, fetch.Url, fetch.Publisher)
                         .Where(c => c.Status != AvailabilityClaimStatus.NotRelevant)
                         .ToList();
-                    var claims = MergeClaims(deterministicClaims, llmClaims);
 
                     await ReplaceClaimsForSourceAsync(fetch.Url, claims, ct);
                     saved += claims.Count;
                     savedConfirmedOut += claims.Count(c => IsConfirmedOut(c.Status));
                     savedDoubtful += claims.Count(c => c.Status is AvailabilityClaimStatus.Doubtful or AvailabilityClaimStatus.FitnessConcern);
                     savedAvailable += claims.Count(c => c.Status == AvailabilityClaimStatus.Available);
-                    notes.Add($"{fetch.Publisher ?? fetch.Url}: {claims.Count} reclamos de disponibilidad guardados ({deterministicClaims.Count} desde filas de tracker).");
+                    notes.Add($"{fetch.Publisher ?? fetch.Url}: {claims.Count} reclamos de disponibilidad guardados desde OpenRouter.");
                 }
                 catch (Exception ex)
                 {
+                    var deterministicClaims = ParseTrackerClaims(fetch.Text, fetch.Url, fetch.Publisher);
                     if (deterministicClaims.Count > 0)
                     {
                         await ReplaceClaimsForSourceAsync(fetch.Url, deterministicClaims, ct);
@@ -376,18 +375,6 @@ namespace Oloraculo.Web.Services
             return (Math.Min(0.18, attack), Math.Min(0.18, defense));
         }
 
-        private static IReadOnlyList<AvailabilityClaim> MergeClaims(IReadOnlyList<AvailabilityClaim> deterministicClaims, IReadOnlyList<AvailabilityClaim> llmClaims)
-        {
-            var merged = new Dictionary<string, AvailabilityClaim>(StringComparer.Ordinal);
-            foreach (var claim in deterministicClaims.Where(c => c.Status != AvailabilityClaimStatus.NotRelevant))
-                merged[ClaimMergeKey(claim)] = claim;
-
-            foreach (var claim in llmClaims.Where(c => c.Status != AvailabilityClaimStatus.NotRelevant))
-                merged.TryAdd(ClaimMergeKey(claim), claim);
-
-            return merged.Values.ToList();
-        }
-
         private async Task<SourceFetchResult> FetchSourceAsync(string url, CancellationToken ct)
         {
             try
@@ -435,7 +422,9 @@ namespace Oloraculo.Web.Services
                         {"claims":[{"player":"","team":"","status":"","reason":"","confidence":"","evidenceLevel":"","supportingText":"","sourceUrl":"","publishedOrObservedDate":""}]}
                         Allowed status values: ConfirmedOutInjury, ConfirmedOutIllness, ConfirmedOutSuspension, ConfirmedOutOther, Doubtful, FitnessConcern, Rumor, Available, NotRelevant.
                         Allowed evidenceLevel values: Official, ReputableReported, ReportedUncertain, Unsupported.
-                        Use ConfirmedOut* only for clear ruled out, withdrawn, replaced, will miss, suspended, or unavailable statements. Use Doubtful/FitnessConcern for could miss, race to be fit, doubt, or fitness concern. Do not infer beyond the article text.
+                        Inspect the full article or tracker text, including line-item statuses such as OUT, IN, DOUBT, and MAJOR DOUBT.
+                        On a player row, OUT means a confirmed-out status unless nearby text clearly says otherwise. Use the reason text to choose injury, illness, suspension, or other.
+                        Use ConfirmedOut* only for clear ruled out, withdrawn, replaced, will miss, suspended, unavailable, or OUT statements. Use Doubtful/FitnessConcern for could miss, race to be fit, doubt, major doubt, or fitness concern. Do not infer beyond the article text.
                         """
                     },
                     new
@@ -534,9 +523,6 @@ namespace Oloraculo.Web.Services
             };
         }
 
-        private static string ClaimMergeKey(AvailabilityClaim claim) =>
-            $"{claim.SourceUrl}|{claim.TeamId}|{claim.PlayerKey}|{claim.Status}";
-
         private static IEnumerable<string> CandidateTrackerLines(string text)
         {
             foreach (var line in Regex.Split(text ?? "", @"\r?\n+"))
@@ -612,13 +598,33 @@ namespace Oloraculo.Web.Services
 
         private static string ExtractReadableText(string html)
         {
-            var text = Regex.Replace(html, @"<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>", " ", RegexOptions.IgnoreCase);
+            var selectedHtml = ExtractElementContent(html, "article")
+                ?? ExtractElementContent(html, "main")
+                ?? ExtractElementContent(html, "body")
+                ?? html;
+
+            var text = Regex.Replace(selectedHtml, @"<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>", " ", RegexOptions.IgnoreCase);
             text = Regex.Replace(text, @"<style\b[^<]*(?:(?!</style>)<[^<]*)*</style>", " ", RegexOptions.IgnoreCase);
             text = Regex.Replace(text, @"</?(p|div|section|article|li|ul|ol|tr|table|tbody|thead|h[1-6]|br)\b[^>]*>", "\n", RegexOptions.IgnoreCase);
             text = Regex.Replace(text, @"<[^>]+>", " ");
             text = WebUtility.HtmlDecode(text);
             text = Regex.Replace(text, @"[ \t\f\v]+", " ");
             return Regex.Replace(text, @"\s*\r?\n\s*", "\n").Trim();
+        }
+
+        private static string? ExtractElementContent(string html, string tagName)
+        {
+            var matches = Regex.Matches(
+                html ?? "",
+                $@"<\s*{tagName}\b[^>]*>(?<content>.*?)<\s*/\s*{tagName}\s*>",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (matches.Count == 0)
+                return null;
+
+            var content = string.Join("\n", matches
+                .Select(m => m.Groups["content"].Value)
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+            return string.IsNullOrWhiteSpace(content) ? null : content;
         }
 
         private static bool LooksBotGated(string html)
