@@ -77,6 +77,30 @@ namespace Oloraculo.Web.Predictors
                 missingFeatures.AddRange(["disponibilidad de jugadores", "alineaciones", "cuotas"]);
             }
 
+            // Markov momentum integration (S6.2):
+            var markovPredictor = new MarkovMomentumPredictor();
+            var markovPrediction = markovPredictor.Predict(context);
+
+            if (!markovPrediction.Degraded)
+            {
+                double homeWinProb = markovPrediction.Outcome.HomeWin;
+                double awayWinProb = markovPrediction.Outcome.AwayWin;
+
+                double homeMult = Math.Clamp(1.0 + (homeWinProb - 1.0 / 3.0) * 0.3, 0.90, 1.10);
+                double awayMult = Math.Clamp(1.0 + (awayWinProb - 1.0 / 3.0) * 0.3, 0.90, 1.10);
+
+                homeGoals *= homeMult;
+                awayGoals *= awayMult;
+
+                usedFeatures.Add("Inercia de Markov");
+                drivers.Add($"Inercia de Markov aplicada. Multiplicadores - Local: {homeMult:F4}, Visitante: {awayMult:F4}.");
+                appliedContext = true;
+            }
+            else
+            {
+                missingFeatures.Add("inercia de Markov");
+            }
+
             var scoreline = _goalModel.BuildScoreline(homeGoals, awayGoals);
             usedFeatures.AddRange(
             [
