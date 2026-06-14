@@ -98,7 +98,7 @@ namespace Oloraculo.Web.Tests
         public async Task Predict_IntegrationWithPredictionService_AppliesMarkovInertia()
         {
             await using var db = await NewDb();
-            
+
             // Seed teams
             var homeTeam = new Team { Id = "T1", Name = "HomeTeam" };
             var awayTeam = new Team { Id = "T2", Name = "AwayTeam" };
@@ -107,7 +107,7 @@ namespace Oloraculo.Web.Tests
             // Seed historical results so that both teams have at least 5 matches
             // We want Home to have win momentum, Away to have loss momentum
             var startDate = DateTimeOffset.UtcNow.AddDays(-20);
-            
+
             // Home (T1): W, W, W, W, W (5 matches) -> transition Win probability = 100%
             for (int i = 0; i < 5; i++)
             {

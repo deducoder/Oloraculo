@@ -64,7 +64,7 @@ namespace Oloraculo.Web.Predictors
         {
             double Delta = 0;
             double Weight = 1.0;
-            foreach(var match in recentMatches.OrderByDescending(m => m.Date))
+            foreach (var match in recentMatches.OrderByDescending(m => m.Date))
             {
                 var GoalsFor = match.HomeTeamId == teamId ? match.HomeGoals : match.AwayGoals;
                 var GoalsAgainst = match.HomeTeamId == teamId ? match.AwayGoals : match.HomeGoals;

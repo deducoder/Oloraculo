@@ -17,7 +17,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 
 builder.Services.Configure<OloraculoConfig>(builder.Configuration.GetSection("Oloraculo"));
-var ConnectionString = builder.Configuration.GetConnectionString("Oloraculo") ?? 
+var ConnectionString = builder.Configuration.GetConnectionString("Oloraculo") ??
     throw new ArgumentNullException("No connection string found in the config!");
 
 

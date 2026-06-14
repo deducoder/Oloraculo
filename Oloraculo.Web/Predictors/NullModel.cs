@@ -7,7 +7,7 @@ namespace Oloraculo.Web.Predictors
     {
         public string Name => "Modelo base";
         public int Priority => 0;
-        public MatchPrediction Predict(MatchContext context) 
+        public MatchPrediction Predict(MatchContext context)
         {
             return new MatchPrediction
             {

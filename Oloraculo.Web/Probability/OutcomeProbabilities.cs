@@ -17,11 +17,11 @@
         public OutcomeProbabilities Normalize()
         {
             var total = Total;
-            if(total <= 0 || double.IsNaN(total) || double.IsInfinity(total))
+            if (total <= 0 || double.IsNaN(total) || double.IsInfinity(total))
             {
                 return Uniform;
             }
-            
+
             return new OutcomeProbabilities(HomeWin / total, Draw / total, AwayWin / total);
         }
     }

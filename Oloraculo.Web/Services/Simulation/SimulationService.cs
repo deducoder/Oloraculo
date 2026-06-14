@@ -15,7 +15,7 @@ namespace Oloraculo.Web.Services.Simulation
         private readonly SnapshotService _snapshots;
         private readonly OloraculoConfig _config;
 
-        public SimulationService(OloraculoDbContext db, PredictionService prediction, 
+        public SimulationService(OloraculoDbContext db, PredictionService prediction,
             SnapshotService snapshots, IOptions<OloraculoConfig> options)
         {
             _db = db;
