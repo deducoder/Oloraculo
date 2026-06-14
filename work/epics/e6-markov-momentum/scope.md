@@ -40,15 +40,15 @@ Enhance match prediction accuracy and explainability by introducing a sequential
 ## Done Criteria
 
 **Per story:**
-- [ ] Code compiles and passes all dotnet tests
-- [ ] Code adheres to nullable contexts
-- [ ] Tests verify core behaviors
+- [x] Code compiles and passes all dotnet tests
+- [x] Code adheres to nullable contexts
+- [x] Tests verify core behaviors
 
 **Epic complete:**
-- [ ] All stories complete (S6.1–S6.3)
-- [ ] Predictor integrated into the overall Oloraculo selection process
-- [ ] Epic retrospective done
-- [ ] Merged to main
+- [x] All stories complete (S6.1–S6.3)
+- [x] Predictor integrated into the overall Oloraculo selection process
+- [x] Epic retrospective done
+- [x] Merged to main
 
 ## Dependencies
 
