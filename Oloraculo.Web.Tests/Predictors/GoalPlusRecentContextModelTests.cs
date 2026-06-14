@@ -2,6 +2,7 @@ using Xunit;
 using Oloraculo.Web.Models;
 using Oloraculo.Web.Predictors;
 using Oloraculo.Web.Probability;
+using Oloraculo.Web.Services;
 using System.Collections.Generic;
 using System;
 
@@ -90,6 +91,85 @@ namespace Oloraculo.Web.Tests
             Assert.Equal(expectedHomeGoals, prediction.ExpectedHomeGoals);
             Assert.Equal(expectedAwayGoals, prediction.ExpectedAwayGoals);
             Assert.Contains("Inercia de Markov", prediction.FeaturesUsed);
+            Assert.Contains(prediction.Drivers, d => d.Contains("Inercia de Markov aplicada"));
+        }
+
+        [Fact]
+        public async Task Predict_IntegrationWithPredictionService_AppliesMarkovInertia()
+        {
+            await using var db = await NewDb();
+            
+            // Seed teams
+            var homeTeam = new Team { Id = "T1", Name = "HomeTeam" };
+            var awayTeam = new Team { Id = "T2", Name = "AwayTeam" };
+            db.Teams.AddRange(homeTeam, awayTeam);
+
+            // Seed historical results so that both teams have at least 5 matches
+            // We want Home to have win momentum, Away to have loss momentum
+            var startDate = DateTimeOffset.UtcNow.AddDays(-20);
+            
+            // Home (T1): W, W, W, W, W (5 matches) -> transition Win probability = 100%
+            for (int i = 0; i < 5; i++)
+            {
+                db.Results.Add(new MatchResult
+                {
+                    Id = $"R1_{i}",
+                    HomeTeamId = "T1",
+                    AwayTeamId = "OpponentH",
+                    HomeGoals = 2,
+                    AwayGoals = 0,
+                    Date = startDate.AddDays(i),
+                    Tournament = "test",
+                    Source = "test"
+                });
+            }
+
+            // Away (T2): L, L, L, L, L (5 matches) -> transition Loss probability = 100%
+            for (int i = 0; i < 5; i++)
+            {
+                db.Results.Add(new MatchResult
+                {
+                    Id = $"R2_{i}",
+                    HomeTeamId = "OpponentA",
+                    AwayTeamId = "T2",
+                    HomeGoals = 2,
+                    AwayGoals = 0,
+                    Date = startDate.AddDays(i),
+                    Tournament = "test",
+                    Source = "test"
+                });
+            }
+
+            // Also seed some general results for the GoalModel base calculation so it compiles/runs without degrading
+            for (int i = 0; i < 10; i++)
+            {
+                db.Results.Add(new MatchResult
+                {
+                    Id = $"RG_{i}",
+                    HomeTeamId = "T1",
+                    AwayTeamId = "T2",
+                    HomeGoals = 1,
+                    AwayGoals = 1,
+                    Date = startDate.AddDays(i),
+                    Tournament = "test",
+                    Source = "test"
+                });
+            }
+
+            await db.SaveChangesAsync();
+
+            var service = new PredictionService(db, SimulationOptions(1, 1));
+            var predictionResult = await service.PredictPairAsync("T1", "T2");
+
+            // Extract the prediction for "Goles + contexto reciente"
+            var prediction = predictionResult.Predictions.Single(p => p.PredictorName == "Goles + contexto reciente");
+
+            // Verify that the integration worked:
+            // 1. The prediction is not degraded
+            Assert.False(prediction.Degraded);
+            // 2. The features used include "Inercia de Markov"
+            Assert.Contains("Inercia de Markov", prediction.FeaturesUsed);
+            // 3. The drivers indicate that Markov momentum was applied
             Assert.Contains(prediction.Drivers, d => d.Contains("Inercia de Markov aplicada"));
         }
     }
