@@ -1,0 +1,20 @@
+version: '1.0'
+project:
+  name: Oloraculo
+  project_type: brownfield
+  language: csharp
+  test_command: /home/dedu/.dotnet/dotnet test --verbosity quiet
+  lint_command: /home/dedu/.dotnet/dotnet format --verify-no-changes
+  type_check_command: /home/dedu/.dotnet/dotnet build --no-restore
+  format_command: /home/dedu/.dotnet/dotnet format --verify-no-changes
+  code_file_count: 110
+  detected_at: '2026-06-13T06:01:12.665180Z'
+branches:
+  development: main
+  main: main
+ide:
+  type: claude
+agents:
+  types:
+  - claude
+  - antigravity
