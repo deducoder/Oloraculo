@@ -19,7 +19,7 @@ Enhance match prediction accuracy and explainability by introducing a sequential
 
 | ID | Story | Size | Status | Description |
 |----|-------|:----:|:------:|-------------|
-| S6.1 | Markov Predictor Foundation | S | Pending | Implement MarkovMomentumPredictor.cs and unit tests |
+| S6.1 | Markov Predictor Foundation | S | Completed | Implement MarkovMomentumPredictor.cs and unit tests |
 | S6.2 | Inertia xG Modifier | S | Pending | Integrate Markov probabilities as +-10% adjustments in GoalPlusRecentContextModel.cs |
 | S6.3 | Selector Momentum Bias | S | Pending | Implement Momentum Bias in FinalPredictionSelector.cs to resolve close technical draws |
 
