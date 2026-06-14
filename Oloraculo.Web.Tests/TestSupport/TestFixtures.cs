@@ -87,19 +87,19 @@ public abstract class TestFixtures
         IReadOnlyList<string>? missing = null,
         ScorelineDistribution? scoreline = null,
         IReadOnlyList<SourceMetadata>? sources = null) => new()
-    {
-        PredictorPriority = priority,
-        PredictorName = name,
-        FixtureId = "f",
-        HomeTeamId = "a",
-        AwayTeamId = "b",
-        Outcome = new OutcomeProbabilities(home, draw, away).Normalize(),
-        Scoreline = scoreline,
-        Explanation = name,
-        FeaturesMissing = missing ?? [],
-        Sources = sources ?? [],
-        Degraded = degraded
-    };
+        {
+            PredictorPriority = priority,
+            PredictorName = name,
+            FixtureId = "f",
+            HomeTeamId = "a",
+            AwayTeamId = "b",
+            Outcome = new OutcomeProbabilities(home, draw, away).Normalize(),
+            Scoreline = scoreline,
+            Explanation = name,
+            FeaturesMissing = missing ?? [],
+            Sources = sources ?? [],
+            Degraded = degraded
+        };
 
     protected static void AssertPredictionResultEqual(MatchPredictionResult expected, MatchPredictionResult actual)
     {

@@ -35,6 +35,7 @@ namespace Oloraculo.Web.Services.Simulation
                 new NullModel(),
                 new FifaRankingModel(),
                 new EloModel(),
+                new MarkovMomentumPredictor(),
                 new RecentFormModel(),
                 goal,
                 new GoalPlusRecentContextModel(goal)

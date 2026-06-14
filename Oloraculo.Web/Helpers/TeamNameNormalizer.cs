@@ -36,13 +36,13 @@ namespace Oloraculo.Web.Helpers
                 ? alias
                 : cleaned;
         }
-        private static string RemoveDiacritics(string text) 
+        private static string RemoveDiacritics(string text)
         {
             string Normalized = text.Normalize(System.Text.NormalizationForm.FormD);
             var Builder = new StringBuilder(Normalized.Length);
-            foreach(var ch in Normalized)
+            foreach (var ch in Normalized)
             {
-                if(CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+                if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
                 {
                     Builder.Append(ch);
                 }

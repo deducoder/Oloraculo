@@ -21,6 +21,9 @@ namespace Oloraculo.Web.Predictors
                 .OrderByDescending(p => p.PredictorPriority)
                 .ToList();
             var rankingBias = TryBuildRankingBias(ordered, selected);
+            var baseOutcome = rankingBias?.Outcome ?? selected.Outcome;
+
+            var momentumBias = TryBuildMomentumBias(ordered, selected, baseOutcome);
 
             var drivers = new List<string>
             {
@@ -33,9 +36,15 @@ namespace Oloraculo.Web.Predictors
                 drivers.Add(
                     $"Aplicó una calibración Elo/FIFA de {RankingBiasWeight:P0} hacia {OutcomeLabel(rankingBias.ConsensusTopPick)} porque ambos modelos de ranking coincidieron contra {selected.PredictorName}.");
             }
+            if (momentumBias is not null)
+            {
+                drivers.Add(
+                    $"Aplicó un sesgo de momentum de 15% hacia {OutcomeLabel(momentumBias.Target)} para resolver el empate debido a inercia favorable de Markov.");
+            }
 
             var sources = selected.Sources
                 .Concat(rankingBias?.Sources ?? [])
+                .Concat(momentumBias?.Sources ?? [])
                 .Concat([new SourceMetadata("model ladder", "derived", Notes: selected.PredictorName)])
                 .Distinct()
                 .ToList();
@@ -47,12 +56,12 @@ namespace Oloraculo.Web.Predictors
                 FixtureId = selected.FixtureId,
                 HomeTeamId = selected.HomeTeamId,
                 AwayTeamId = selected.AwayTeamId,
-                Outcome = rankingBias?.Outcome ?? selected.Outcome,
+                Outcome = momentumBias?.Outcome ?? baseOutcome,
                 ExpectedHomeGoals = selected.ExpectedHomeGoals,
                 ExpectedAwayGoals = selected.ExpectedAwayGoals,
                 Scoreline = selected.Scoreline,
                 MostLikelyScore = selected.MostLikelyScore,
-                Explanation = BuildExplanation(selected, skippedHigher, rankingBias),
+                Explanation = BuildExplanation(selected, skippedHigher, rankingBias, momentumBias),
                 Drivers = drivers,
                 FeaturesUsed = selected.FeaturesUsed,
                 FeaturesMissing = selected.FeaturesMissing,
@@ -89,20 +98,69 @@ namespace Oloraculo.Web.Predictors
                 elo.Sources.Concat(fifa.Sources).ToList());
         }
 
+        private static MomentumBias? TryBuildMomentumBias(
+            IReadOnlyList<MatchPrediction> ordered,
+            MatchPrediction selected,
+            OutcomeProbabilities baseOutcome)
+        {
+            if (baseOutcome.TopPick != "Draw")
+                return null;
+
+            var markov = ordered.LastOrDefault(p => p.PredictorName == "Inercia de Markov" && !p.Degraded);
+            if (markov is null)
+                return null;
+
+            double homeWin = markov.Outcome.HomeWin;
+            double awayWin = markov.Outcome.AwayWin;
+
+            string? target = null;
+            if (homeWin > 0.40 && awayWin < 0.25)
+                target = "Home";
+            else if (awayWin > 0.40 && homeWin < 0.25)
+                target = "Away";
+
+            if (target is null)
+                return null;
+
+            const double bias = 0.15;
+            double h = baseOutcome.HomeWin;
+            double d = baseOutcome.Draw;
+            double a = baseOutcome.AwayWin;
+
+            if (target == "Home")
+            {
+                h += bias;
+                d -= bias;
+            }
+            else
+            {
+                a += bias;
+                d -= bias;
+            }
+
+            var outcome = new OutcomeProbabilities(h, d, a).Normalize();
+            return new MomentumBias(outcome, target, markov.Sources);
+        }
+
         private static string BuildExplanation(
             MatchPrediction selected,
             IReadOnlyList<MatchPrediction> skippedHigher,
-            RankingBias? rankingBias)
+            RankingBias? rankingBias,
+            MomentumBias? momentumBias)
         {
             var rankingSentence = rankingBias is null
                 ? ""
                 : $" Aplicó una calibración Elo/FIFA de {RankingBiasWeight:P0} hacia {OutcomeLabel(rankingBias.ConsensusTopPick)}.";
 
+            var momentumSentence = momentumBias is null
+                ? ""
+                : $" Aplicó un sesgo de momentum de 15% hacia {OutcomeLabel(momentumBias.Target)} para resolver el empate debido a inercia favorable de Markov.";
+
             if (skippedHigher.Count == 0)
-                return $"El Oráculo final seleccionó {selected.PredictorName}, el escalón usable más alto. {selected.Explanation}{rankingSentence}";
+                return $"El Oráculo final seleccionó {selected.PredictorName}, el escalón usable más alto. {selected.Explanation}{rankingSentence}{momentumSentence}";
 
             var skipped = string.Join("; ", skippedHigher.Select(p => $"{p.PredictorName} {Reason(p)}"));
-            return $"El Oráculo final seleccionó {selected.PredictorName} porque {skipped}. {selected.Explanation}{rankingSentence}";
+            return $"El Oráculo final seleccionó {selected.PredictorName} porque {skipped}. {selected.Explanation}{rankingSentence}{momentumSentence}";
         }
 
         private static string Reason(MatchPrediction prediction)
@@ -137,6 +195,11 @@ namespace Oloraculo.Web.Predictors
         private sealed record RankingBias(
             OutcomeProbabilities Outcome,
             string ConsensusTopPick,
+            IReadOnlyList<SourceMetadata> Sources);
+
+        private sealed record MomentumBias(
+            OutcomeProbabilities Outcome,
+            string Target,
             IReadOnlyList<SourceMetadata> Sources);
     }
 }
